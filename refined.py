@@ -9,9 +9,16 @@ from keras.layers import Flatten
 from keras.layers import Embedding
 from keras.layers import LSTM
 from keras.layers import GRU
+from keras.layers import CuDNNGRU
+from keras.layers import CuDNNLSTM
 from keras.layers import Dropout
 from keras.layers import Conv1D
 from keras.layers import MaxPooling1D
+from keras.layers import GlobalMaxPooling1D
+from keras.layers import AveragePooling1D
+from keras.layers import SpatialDropout1D   
+from keras.layers import Bidirectional
+from keras.layers import TimeDistributed
 from keras.callbacks import EarlyStopping
 from sklearn.utils import shuffle
 from gensim.parsing.preprocessing import *
@@ -33,7 +40,7 @@ def prepare_labels(arr, n_cats):
     n_samples = len(arr)
     y = np.zeros(shape=(n_samples, n_cats))
     for i in range(n_samples):
-        label = arr[i]
+        label = int(arr[i])
         if label == -1:
             y[i, 0] = 1.
         elif label == 0:
@@ -104,77 +111,57 @@ del d
 del words
 del reader
 
-print('data prepared.')     
+print('data prepared.')  
 
-EMBEDDING_SIZES = [100, 150, 200, 250, 300]
-N_RECURRENT_LAYERS = 3
+EMBEDDING_SIZE = 200
 N_RECURRENT_UNITS = 100
-RECURRENT_DROPOUT = 0.3
-RECURRENT_LAYERS_TYPES = [GRU, LSTM]
-FILTER_SIZES = [64, 32, 16]
+DROPOUT = 0.3
 VOCAB_SIZE = 30000 + 1
 NB_EPOCHS = 10
 
-base_dir = 'models {} epochs/'.format(NB_EPOCHS)
-
+base_dir = 'experiment_model {0} Epochs/'.format(NB_EPOCHS)
 if not os.path.exists(base_dir):
     os.mkdir(base_dir)
 
-results = []
+model = Sequential()
+model.add(Embedding(VOCAB_SIZE, EMBEDDING_SIZE, input_length=MAX_SIZE))
+model.add(Conv1D(filters=64, kernel_size=8, activation='relu'))
+model.add(MaxPooling1D(pool_size=2))
+model.add(LSTM(N_RECURRENT_UNITS, recurrent_dropout=DROPOUT, return_sequences=True))
+model.add(Conv1D(filters=32, kernel_size=8, activation='relu'))
+model.add(MaxPooling1D(pool_size=2))
+model.add(LSTM(N_RECURRENT_UNITS, recurrent_dropout=DROPOUT))
+model.add(Dense(250, activation='tanh'))
+model.add(Dense(NUM_CATEGORIES, activation='softmax'))
+model.summary()
+model.compile(loss='categorical_crossentropy', optimizer='rmsprop', metrics=['accuracy'])
 
-for emb_size in EMBEDDING_SIZES:
-    for recur_layer in RECURRENT_LAYERS_TYPES:
-        for i in range(1, N_RECURRENT_LAYERS+1):
-            model = Sequential()
-            model.add(Embedding(VOCAB_SIZE, emb_size, input_length=MAX_SIZE))
-            for j in range(i):
-                return_sequences = True
-                if j + 1 == i:
-                    return_sequences = False
-                model.add(Conv1D(filters=FILTER_SIZES[j], kernel_size=8, activation='relu'))
-                model.add(MaxPooling1D(pool_size=2))
-                model.add(recur_layer(N_RECURRENT_UNITS, recurrent_dropout=RECURRENT_DROPOUT, return_sequences=return_sequences))
-            model.add(Dense(250, activation='tanh'))
-            model.add(Dense(NUM_CATEGORIES, activation='softmax'))
-            model.summary()
-            model.compile(loss='categorical_crossentropy', optimizer='rmsprop', metrics=['accuracy'])
-            
-            es = EarlyStopping(monitor='val_loss', min_delta=0, patience=1, verbose=0, mode='auto')
-            history = model.fit(x_train, y_train, batch_size=128, shuffle=True, epochs=NB_EPOCHS, callbacks=[es], validation_split=0.2, verbose=1)
+es = EarlyStopping(monitor='val_loss', min_delta=0, patience=1, verbose=0, mode='auto')
+history = model.fit(x_train, y_train, batch_size=128, shuffle=True, epochs=NB_EPOCHS,  callbacks=[es], validation_split=0.2, verbose=1)
 
-            acc =       history.history['acc']
-            val_acc =   history.history['val_acc']
-            loss =      history.history['loss']
-            val_loss =  history.history['val_loss']
+acc =       history.history['acc']
+val_acc =   history.history['val_acc']
+loss =      history.history['loss']
+val_loss =  history.history['val_loss']
 
-            test_loss, test_acc = model.evaluate(x_test,y_test)
+test_loss, test_acc = model.evaluate(x_test,y_test)
 
-            model_info = 'Embedding size {0} - {1} Layers {2}'.format(emb_size, recur_layer.__name__, i)
-            model_dir = os.path.join(base_dir, model_info)
 
-            os.mkdir(model_dir)
-            os.chdir(model_dir)
-            results_dic = {
-                'acc':       acc,
-                'loss':      loss,
-                'val_acc':   val_acc,
-                'val_loss':  val_loss,
-                'test_acc':  test_acc,
-                'test_loss': test_loss
-            }
-            with open('results.json', 'w') as f:
-                json.dump(results_dic, f)
-            
-            results.append({model_info: results_dic})
-            model_json = model.to_json()
-            with open("model.json", "w") as json_file:
-                json_file.write(model_json)
-            model.save_weights("model.h5")
-            print("Saved model to disk")
+os.chdir(base_dir)
+results_dic = {
+    'acc':       acc,
+    'loss':      loss,
+    'val_acc':   val_acc,
+    'val_loss':  val_loss,
+    'test_acc':  test_acc,
+    'test_loss': test_loss
+}
+with open('results.json', 'w') as f:
+    json.dump(results_dic, f)
+
+model_json = model.to_json()
+with open("model.json", "w") as json_file:
+    json_file.write(model_json)
+model.save_weights("model.h5")
+print("Saved model to disk")
          
-            os.chdir('..')
-            os.chdir('..')
-
-
-with open('all_results.json', 'w') as f:
-    json.dump(results, f)            
