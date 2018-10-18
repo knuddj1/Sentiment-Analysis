@@ -1,5 +1,6 @@
-import json
 import csv
+import json
+from prepare_data import prepare
 from gensim.parsing.preprocessing import *
 
 CUSTOM_FILTERS = [  lambda x: x.lower(), #To lowercase
@@ -13,34 +14,28 @@ CUSTOM_FILTERS = [  lambda x: x.lower(), #To lowercase
                     lambda x: strip_short(x, minsize=3), #Remove words with length lesser than minsize from s.
                 ]
 
-with open('word_to_index_top_30000.json', 'r') as f:
-    d = json.load(f)
+def get_test_data(max_size, n_cats):
+    with open('word_to_index_top_30000.json', 'r') as f:
+        d = json.load(f)
 
-files = ['negative.csv', 'neutral.csv', 'positive.csv']
+    data = []
+    labels = []
 
-data = []
-labels = []
-
-for f in files:
-    with open(f, 'r') as csvfile:
-        for row in csv.reader(csvfile):
-            words = preprocess_string(row[0], CUSTOM_FILTERS)
+    print("collecting test data and labels..")
+    with open('test_data.csv', 'r', encoding="utf8") as csvfile:
+        reader = csv.reader(csvfile)
+        for r in reader:
+            words = preprocess_string(r[0], CUSTOM_FILTERS)
             nums = [0] * len(words)
             for i, word in enumerate(words):
                 if word in d:
                     nums[i] = d[word]
             data.append(nums)
-            labels.append([row[1]])
+            labels.append(r[-1])
+    print("collected test data and labels succesfully.")
 
+    print("preparing test data and labels..")
+    x_test, y_test = prepare(X=data[1:], y=labels[1:], max_size=max_size, n_cats=n_cats, shuffle_data=True)
+    print("prepared test data and labels succesfully.")
 
-with open('data.csv', 'w', newline='') as f:
-    w = csv.writer(f)
-    for d in data:
-        w.writerow(d)
-
-with open('labels.csv', 'w', newline='') as f:
-    w = csv.writer(f)
-    for l in labels:
-        w.writerow(l)
-    
-
+    return x_test, y_test
